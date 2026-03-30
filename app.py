@@ -2,29 +2,23 @@ import streamlit as st
 import google.generativeai as genai
 import json
 from fpdf import FPDF
+import os
 
-# ==========================================
-# 1. KONFIGURASI AI TERPENGAMAN (SECRETS)
-# ==========================================
-# Mengambil API key dari Streamlit Secrets (bukan hardcode)
+# ==============================================================================
+# 1. KONFIGURASI HALAMAN & API SECRETS
+# ==============================================================================
+st.set_page_config(page_title="AI CV Builder Pro", layout="wide")
+
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
 except KeyError:
-    st.error("🔑 API Key belum diatur di Streamlit Secrets!")
+    st.error("API Key belum diatur di Streamlit Secrets!")
     st.stop()
 
-def get_ai_response(prompt):
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Error AI: {str(e)}"
-
-# ==========================================
-# 2. LOGIKA PDF GENERATOR 
-# ==========================================
+# ==============================================================================
+# 2. LOGIKA PDF GENERATOR (BACKEND)
+# ==============================================================================
 class PDFResume(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 20)
@@ -91,25 +85,55 @@ def generate_pdf(json_data, enhanced_experience):
 
     return bytes(pdf.output())
 
-# ==========================================
-# 3. TAMPILAN WEB STREAMLIT
-# ==========================================
-st.set_page_config(page_title="AI CV Builder", page_icon="📝")
-st.title("📝 AI CV Builder - Profesional & ATS-Friendly")
+# ==============================================================================
+# 3. SIDEBAR & KONFIGURASI AI
+# ==============================================================================
+with st.sidebar:
+    st.header("Konfigurasi Sistem")
+    model_name = st.selectbox("Pilih Model AI", ["gemini-pro", "gemini-1.5-flash"])
+    
+    st.markdown("---")
+    st.markdown("**Target Lowongan Kerja:**")
+    st.info("Bantu AI menyesuaikan gaya bahasa CV Anda dengan posisi yang sedang Anda lamar.")
+    target_job_title = st.text_input("Posisi yang Dilamar", value="Data Entry / Admin")
+    target_job_desc = st.text_area(
+        "Detail Lowongan (Opsional)", 
+        value="Dicari admin yang teliti, mahir entry data, dan bisa membalas komplain pelanggan...", 
+        height=150
+    )
+
+# Inisialisasi Model
+model = genai.GenerativeModel(model_name)
+
+def get_ai_response(prompt):
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Error AI: {str(e)}"
+
+# ==============================================================================
+# 4. ANTARMUKA UTAMA (MAIN UI)
+# ==============================================================================
+st.title("AI CV Builder Pro")
+st.markdown("*Sistem Pembuat CV Otomatis Berbasis AI untuk Memaksimalkan Skor ATS (Applicant Tracking System)*")
 st.markdown("---")
 
-st.header("Langkah 1: Masukkan Data Mentah Anda")
+st.markdown("### 1. Masukkan Data Mentah Anda")
 raw_text_input = st.text_area(
-    "Tempelkan (paste) teks CV lama Anda di sini", 
-    placeholder="Contoh: Nama Budi Santoso. Email budi@email.com. Pernah kerja jadi admin 2022 di PT Maju Mundur...",
-    height=200
+    "Tempelkan (paste) coretan pengalaman kerja, pendidikan, dan kontak Anda di sini:", 
+    placeholder="Contoh: Nama saya Budi Santoso. Email budi@email.com. Pernah kerja jadi admin tahun 2022 di PT Maju Mundur, tugas input data dan balesin email...",
+    height=150
 )
 
-if st.button("✨ Proses CV Saya dengan AI"):
+st.markdown("---")
+if st.button("Analisis & Bangun CV ATS-Friendly", type="primary", use_container_width=True):
     if not raw_text_input:
-        st.warning("⚠️ Masukkan teks CV Anda terlebih dahulu!")
+        st.warning("Masukkan teks CV Anda terlebih dahulu di kotak atas!")
     else:
-        with st.spinner("🧠 AI sedang menyusun CV Anda..."):
+        with st.spinner("AI sedang menyusun ulang rekam jejak Anda menjadi CV profesional..."):
+            
+            # 1. PROMPT EKSTRAKSI JSON
             prompt_ext = f"""
             Ekstrak info dari teks ini ke JSON. WAJIB JSON valid tanpa markdown (```json).
             Struktur: {{"nama": "", "email": "", "pendidikan": [], "pengalaman": [], "keahlian": []}}.
@@ -117,38 +141,66 @@ if st.button("✨ Proses CV Saya dengan AI"):
             """
             json_result = get_ai_response(prompt_ext)
             
+            # Mengambil posisi dan deskripsi dari hasil JSON
             try:
                 temp_data = json.loads(json_result.replace('```json', '').replace('```', '').strip())
-                posisi = temp_data['pengalaman'][0].get('posisi', 'Pekerjaan') if temp_data.get('pengalaman') else "Pekerjaan"
-                deskripsi = temp_data['pengalaman'][0].get('deskripsi', '') if temp_data.get('pengalaman') else ""
+                posisi_mentah = temp_data['pengalaman'][0].get('posisi', 'Pekerjaan') if temp_data.get('pengalaman') else "Pekerjaan"
+                deskripsi_mentah = temp_data['pengalaman'][0].get('deskripsi', '') if temp_data.get('pengalaman') else ""
             except:
-                posisi, deskripsi = "Pekerjaan", raw_text_input
+                posisi_mentah, deskripsi_mentah = "Pekerjaan", raw_text_input
 
+            # 2. PROMPT ENHANCEMENT (Disesuaikan dengan Sidebar)
             prompt_enh = f"""
-            Perbaiki deskripsi kerja ini agar profesional, gunakan action verbs, ATS-friendly.
-            Posisi: {posisi}
-            Deskripsi: {deskripsi}
-            Berikan 3-4 bullet points perbaikan bahasa Indonesia baku. Hanya tulis bullet points.
+            Kamu adalah pakar penulisan CV tingkat dunia. Perbaiki deskripsi kerja ini agar terlihat sangat profesional, 
+            gunakan action verbs yang kuat, tambahkan metrik kuantitatif logis, dan buat ATS-friendly.
+            
+            Konteks Target Pekerjaan: {target_job_title}
+            Kriteria Lowongan: {target_job_desc}
+            
+            Posisi Saat Ini: {posisi_mentah}
+            Deskripsi Mentah User: {deskripsi_mentah}
+            
+            Berikan 3-4 bullet points perbaikan dalam bahasa Indonesia yang baku dan elegan. Hanya tulis bullet points.
             """
             enhanced_result = get_ai_response(prompt_enh)
 
+            # Simpan ke Session State
             st.session_state['json_cv'] = json_result
             st.session_state['enhanced_cv'] = enhanced_result
             st.session_state['processed'] = True
 
+# ==============================================================================
+# 5. HASIL & UNDUH PDF
+# ==============================================================================
 if st.session_state.get('processed'):
+    st.success("Dokumen CV berhasil disusun dan dioptimasi!")
+    
+    st.markdown("### 2. Pratinjau & Hasil Optimasi AI")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("**Perbaikan Pengalaman (Siap Tembus ATS)**")
+        st.markdown(st.session_state['enhanced_cv'])
+        
+    with col2:
+        with st.expander("Lihat Detail Data Mentah (Ekstraksi JSON)"):
+            st.code(st.session_state['json_cv'], language='json')
+            
     st.markdown("---")
-    st.header("Langkah 2: Unduh PDF")
-    st.success("CV Anda berhasil diproses!")
+    st.markdown("### 3. Unduh Dokumen CV")
     
     try:
+        # Bersihkan JSON dari kemungkinan markdown backticks
         clean_json = st.session_state['json_cv'].replace('```json', '').replace('```', '').strip()
         pdf_bytes = generate_pdf(clean_json, st.session_state['enhanced_cv'])
+        
         st.download_button(
-            label="📄 Unduh CV PDF Anda",
+            label="Klik Disini untuk Unduh CV (PDF)",
             data=pdf_bytes,
-            file_name="CV_Profesional_AI.pdf",
-            mime="application/pdf"
+            file_name="CV_ATS_Friendly.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
         )
     except Exception as e:
         st.error(f"Gagal membuat PDF: {e}")
