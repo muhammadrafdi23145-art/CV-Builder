@@ -90,7 +90,7 @@ def generate_pdf(json_data, enhanced_experience):
 # ==============================================================================
 with st.sidebar:
     st.header("Konfigurasi Sistem")
-    model_name = st.selectbox("Pilih Model AI", ["gemini-pro", "gemini-1.5-flash"])
+    model_name = st.selectbox("Pilih Model AI", ["gemini-pr", "gemini-1.5-flash", "gemini-3-flash-preview"])
     
     st.markdown("---")
     st.markdown("**Target Lowongan Kerja:**")
